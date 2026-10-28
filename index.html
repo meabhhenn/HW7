@@ -15,6 +15,9 @@
     -->
     <main id="app">
       <header id="hud">
+        <!-- AC#1: click to grant camera + start tracking (reliable permission). -->
+        <button id="start" class="hud-panel" type="button">Start camera</button>
+
         <!-- TODO(AC#2): show the order ticket here (toppings, bake time, slices). -->
         <div id="ticket" class="hud-panel" hidden>order ticket goes here</div>
 
@@ -33,8 +36,8 @@
         <canvas id="game" width="1280" height="720"></canvas>
       </div>
 
-      <!-- TODO(AC#1): setup/permission banner if camera isn't available yet. -->
-      <div id="status" class="hud-panel">status: not started</div>
+      <!-- AC#1: status/permission banner. -->
+      <div id="status" class="hud-panel">status: not started — click "Start camera"</div>
     </main>
 
     <!--

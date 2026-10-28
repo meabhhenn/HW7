@@ -9,12 +9,19 @@
 
 import { CONFIG, LANDMARK } from "./config.js";
 
-// TODO(AC#1): import MediaPipe Tasks Vision. Example (pin a version):
-//   import { HandLandmarker, FilesetResolver }
-//     from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
-// The spec also wants the built-in "thumbs up" gesture (AC#2/#13), which can
-// come from GestureRecognizer. Decide whether to run HandLandmarker +
-// custom gesture logic, or GestureRecognizer, or both.
+// AC#1: MediaPipe Tasks Vision provides HandLandmarker, which is all the hand
+// cursor needs. The built-in "thumbs up" gesture (AC#2/#13) would come from
+// GestureRecognizer later -- not required for AC#1, left as a TODO in gestures.
+import {
+  HandLandmarker,
+  FilesetResolver,
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+// Pinned asset locations for the WASM runtime + the hand landmarker model.
+const WASM_BASE =
+  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const HAND_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 
 /**
  * @typedef {Object} HandFrame
@@ -34,7 +41,9 @@ export class HandTracker {
     /** @type {HandFrame} */
     this.latest = { landmarks: null, handedness: null, cursor: null, timestamp: 0 };
 
-    this._landmarker = null; // TODO(AC#1): MediaPipe HandLandmarker instance.
+    this._landmarker = null;   // MediaPipe HandLandmarker instance (set in init).
+    this._stream = null;       // MediaStream, kept so we can stop tracks on dispose.
+    this._lastVideoTime = -1;  // guards against re-running detection on same frame.
     this._running = false;
   }
 
@@ -43,12 +52,31 @@ export class HandTracker {
    * @returns {Promise<void>}
    */
   async init() {
-    // TODO(AC#1): getUserMedia for the camera and attach to this.video.
-    //   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    //   this.video.srcObject = stream; await this.video.play();
-    // TODO(AC#1): create FilesetResolver + HandLandmarker in VIDEO running mode.
-    //   Set numHands to 1 (one order at a time; multi-hand is a stretch goal).
-    throw new Error("HandTracker.init not implemented"); // TODO
+    // AC#1: get the camera stream and attach it to the <video> element.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Camera API not available in this browser");
+    }
+    this._stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: this.width },
+        height: { ideal: this.height },
+        facingMode: "user",
+      },
+      audio: false,
+    });
+    this.video.srcObject = this._stream;
+    await this.video.play();
+
+    // AC#1: load the WASM runtime and create the HandLandmarker in VIDEO mode.
+    // numHands: 1 -- the spec handles one order at a time (multi-hand is stretch).
+    const fileset = await FilesetResolver.forVisionTasks(WASM_BASE);
+    this._landmarker = await HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
+      runningMode: "VIDEO",
+      numHands: 1,
+    });
+
+    this._running = true;
   }
 
   /**
@@ -58,13 +86,37 @@ export class HandTracker {
    * @returns {HandFrame}
    */
   detect(nowMs) {
-    // TODO(AC#1): call this._landmarker.detectForVideo(this.video, nowMs).
-    // TODO(AC#1): pick the primary hand, store normalized landmarks.
-    // TODO(AC#1): project index fingertip (LANDMARK.INDEX_TIP) to canvas pixels
-    //   via this._toScreen(...) and store as cursor so the on-screen cursor
-    //   follows the player's hand.
-    void nowMs;
-    void LANDMARK;
+    // Not ready yet, or the video has no decoded frame -- return the last result.
+    if (!this._landmarker || this.video.readyState < 2) {
+      return this.latest;
+    }
+    // Skip if the video hasn't advanced since last detection (avoids throwing).
+    if (this.video.currentTime === this._lastVideoTime) {
+      return this.latest;
+    }
+    this._lastVideoTime = this.video.currentTime;
+
+    const result = this._landmarker.detectForVideo(this.video, nowMs);
+    const hands = (result && result.landmarks) || [];
+
+    if (hands.length === 0) {
+      // No hand this frame -- clear so the cursor hides until the hand returns.
+      this.latest = { landmarks: null, handedness: null, cursor: null, timestamp: nowMs };
+      return this.latest;
+    }
+
+    // AC#1: primary (first) hand. Store normalized landmarks and project the
+    // index fingertip to canvas pixels so the cursor follows the player's hand.
+    const landmarks = hands[0];
+    const handedness =
+      (result.handednesses &&
+        result.handednesses[0] &&
+        result.handednesses[0][0] &&
+        result.handednesses[0][0].categoryName) ||
+      null;
+    const cursor = this._toScreen(landmarks[LANDMARK.INDEX_TIP]);
+
+    this.latest = { landmarks, handedness, cursor, timestamp: nowMs };
     return this.latest;
   }
 
@@ -75,15 +127,22 @@ export class HandTracker {
    * @returns {{x:number,y:number}}
    */
   _toScreen(pt) {
-    // TODO(AC#1, mirror rule): if CONFIG.MIRROR_CAMERA, flip x so the cursor
-    // tracks the player's real hand, not the mirrored image.
+    // AC#1 (mirror rule): the camera feed is mirrored for the player, so flip x
+    // to make the cursor track the player's real hand, not the mirror image.
     const x = CONFIG.MIRROR_CAMERA ? 1 - pt.x : pt.x;
     return { x: x * this.width, y: pt.y * this.height };
   }
 
   /** Stop the camera stream and free the model. */
   dispose() {
-    // TODO: stop MediaStream tracks and close the landmarker.
     this._running = false;
+    if (this._stream) {
+      for (const track of this._stream.getTracks()) track.stop();
+      this._stream = null;
+    }
+    if (this._landmarker) {
+      this._landmarker.close();
+      this._landmarker = null;
+    }
   }
 }

@@ -33,12 +33,19 @@ class Game {
   }
 
   async start() {
+    // AC#1: bring up the camera + hand landmarker, then run the loop.
     this.statusEl.textContent = "status: requesting camera…";
-    // TODO(AC#1): await this.tracker.init() and handle permission errors here.
-    //   On failure, show a helpful message in #status and stop.
+    try {
+      await this.tracker.init();
+    } catch (err) {
+      // Permission denied, no camera, or model load failure -- surface it.
+      this.statusEl.textContent = `status: camera error — ${err.message}`;
+      throw err;
+    }
+
     this._enterStation(this.currentStation);
     this._running = true;
-    this.statusEl.textContent = "status: running";
+    this.statusEl.textContent = "status: running — move your hand";
     requestAnimationFrame((t) => this._loop(t));
   }
 
@@ -130,26 +137,45 @@ class Game {
 
   _renderCursor(cursor) {
     if (!cursor) return;
-    // TODO(AC#1): draw a nicer cursor; placeholder dot for now.
+    // AC#1: draw the hand cursor at the index fingertip. A ring + center dot
+    // reads clearly over the dimmed camera feed.
     const { ctx } = this;
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(cursor.x, cursor.y, 10, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(224,164,88,0.9)";
+    ctx.arc(cursor.x, cursor.y, 14, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(224,164,88,0.95)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cursor.x, cursor.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(224,164,88,0.95)";
     ctx.fill();
+    ctx.restore();
   }
 }
 
-// Boot once the DOM is ready. A real start may be gated behind a "click to
-// allow camera" button; wiring that UI is a TODO.
+// Gate startup behind an explicit click so the browser reliably grants camera
+// + autoplay permission (AC#1). The button lives in index.html.
 window.addEventListener("DOMContentLoaded", () => {
   const game = new Game();
-  // TODO(AC#1): start on an explicit user gesture (button) so the browser
-  // reliably grants camera + autoplay permissions.
-  game.start().catch((err) => {
-    const statusEl = document.getElementById("status");
-    if (statusEl) statusEl.textContent = `status: error — ${err.message}`;
-    // eslint-disable-next-line no-console
-    console.error(err);
-  });
+  const startBtn = document.getElementById("start");
+  const statusEl = document.getElementById("status");
+
+  const boot = () => {
+    if (startBtn) startBtn.disabled = true;
+    game.start().catch((err) => {
+      if (startBtn) startBtn.disabled = false;
+      if (statusEl) statusEl.textContent = `status: error — ${err.message}`;
+      // eslint-disable-next-line no-console
+      console.error(err);
+    });
+  };
+
+  if (startBtn) {
+    startBtn.addEventListener("click", boot, { once: false });
+  } else {
+    // No button in the DOM -- fall back to auto-start.
+    boot();
+  }
   void CONFIG;
 });
