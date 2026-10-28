@@ -1,81 +1,93 @@
 # Gesture-Controlled Papa's Pizzeria
 
-A single-player, camera-controlled pizza game. You make one pizza at a time,
-moving through five stations using hand gestures tracked by MediaPipe. See
-[`spec.md`](./spec.md) for the full design and acceptance criteria.
+Make pizzas with hand gestures tracked by your webcam (MediaPipe, in the
+browser). One pizza at a time through five stations: Order → Topping → Bake →
+Cut → Serve. Full design and acceptance criteria (AC#n) are in
+[`SPEC.md`](./SPEC.md).
 
-> Status: **skeleton only.** The structure and interfaces are in place; feature
-> logic is stubbed with `TODO` comments that point back to the acceptance
-> criteria (AC#n) in `spec.md`.
+**Status:** Hand cursor, station switching, and placing toppings work. Other
+stations have placeholder graphics and `TODO(AC#n)` markers only.
 
-## Project structure
+## Install and run
 
-```
-HW7/
-├── index.html          Entry point: camera <video>, game <canvas>, HUD panels
-├── styles.css          Layout for the feed, canvas, and HUD
-├── src/
-│   ├── config.js       Shared constants: stations, gestures, tunables, landmarks
-│   ├── handTracking.js Camera + MediaPipe landmarks -> screen-space cursor (AC#1)
-│   ├── gestures.js     Landmarks -> pinch / thumbs up / thumbs left-right (AC#4,5)
-│   ├── stations.js     The five stations + per-station rules and drawing
-│   └── game.js         Main loop + state machine, wires the modules together
-└── spec.md             Design + acceptance criteria
-```
-
-### Why these boundaries
-
-- **handTracking.js** only knows about the camera and MediaPipe. It produces a
-  `HandFrame` (landmarks + cursor) and nothing else.
-- **gestures.js** only interprets a `HandFrame` into a `GestureState`. No
-  drawing, no game rules.
-- **stations.js** holds all game rules and rendering, split one class per
-  station. Stations receive a `GameContext` (cursor + gesture + shared pizza/
-  order state) and never touch the camera.
-- **game.js** is the only module that imports the others. It owns the loop, the
-  active-station state machine, and the gesture-routing rules (e.g. AC#3:
-  thumbs up only counts at Order and Serve).
-
-## Acceptance criteria map
-
-| AC  | Where it lives |
-| --- | -------------- |
-| #1 hand cursor | `handTracking.js` (`_toScreen`, cursor), `game.js` (`_renderCursor`) |
-| #2 take order / ticket | `stations.js` `OrderStation`, `index.html` `#ticket` |
-| #3 thumbs up gated | `game.js` `_routeGesture` |
-| #4 switch stations (held) | `gestures.js` `_evaluateHold`, `game.js` `_handleStationSwitch` |
-| #5 quick flick ignored | `gestures.js` `_evaluateHold` |
-| #6 sauce drag | `stations.js` `ToppingStation` |
-| #7 cheese | `stations.js` `ToppingStation` |
-| #8 place topping (core) | `stations.js` `ToppingStation` |
-| #9 trash topping | `stations.js` `ToppingStation` |
-| #10 auto bake | `stations.js` `BakeStation.onEnter` |
-| #11 take out of oven | `stations.js` `BakeStation` |
-| #12 cut slices | `stations.js` `CutStation` |
-| #13 serve + rating | `stations.js` `ServeStation`, `index.html` `#rating` |
-
-## Running
-
-The app uses ES modules and loads MediaPipe from a CDN, so it must be served
-over HTTP (not opened as a `file://` URL) and needs camera permission.
+No build step. Needs Chrome, a webcam, and internet on first load (MediaPipe
+loads from a CDN).
 
 ```bash
-# from the HW7 directory, any static server works, e.g.:
 python3 -m http.server 8000
-# then open http://localhost:8000
 ```
 
-Camera access requires a secure context (`localhost` counts, or HTTPS).
+Open **http://localhost:8000**, click **Start camera**, and allow camera access.
 
-## Next steps
+## Controls So Far
 
-Implement the `TODO`s in priority order from `spec.md`:
+Gesture: Action: Where
+Move index finger: Move cursor: Everywhere
+Hold thumbs right (~0.6s): Next station: Everywhere
+Hold thumbs left (~0.6s): Previous station: Everywhere
+Pinch / hold / release: Grab, drag, drop: Topping station
 
-1. **MUST** — AC#1 (cursor), AC#4 (station switching), AC#8 (place toppings).
-2. **SHOULD** — AC#2 (ticket), AC#13 (serve + rating), AC#10/#11 (bake),
-   AC#12 (cut), AC#7 (cheese).
-3. **Later** — AC#6 (sauce), AC#9 (trash), AC#5 (quick-gesture guard),
-   AC#3 (thumbs up blocked elsewhere).
+Left/right are from the player's point of view (the camera is mirrored in code).
 
-Start by filling in the tunables in `config.js` (pinch thresholds, the AC#4
-hold duration) — several stubs depend on them.
+## Acceptance criteria status
+
+AC Number: Status: Notes
+#1 Cursor: Working
+#2 Order ticket: Not started: Placeholder ticket only
+#3 Thumbs up blocked at middle stations: Partial: Guard exists, but nothing uses thumbs up yet
+#4 Station switching: Working
+#5 Quick flick ignored: Working: Part of #4 
+#6 Sauce: Not started: Bin drawn, not interactive
+#7 Cheese: Not started: Bin drawn, not interactive
+#8 Place toppings: Working:Pepperoni and pepper bins only
+#9 Trash: Not started: Drawn only
+#10 Auto into oven: Not started
+#11 Glove takes pizza out: Not started: Drawn only
+#12 Cutting: Not started: Drawn only
+#13 Serve and rating: Not started: Placeholder stars only
+
+## Code map
+
+- `index.html` / `styles.css`: page, canvas, HUD, Start button.
+- `src/config.js`: all constants and thresholds. Tune here first.
+- `src/handTracking.js`: camera + MediaPipe GestureRecognizer → landmarks,
+  cursor, built-in gesture label.
+- `src/gestures.js`: pinch, thumbs up, thumbs left/right. Also
+  **`PinchDragTracker`**, the reusable grab/drag/drop helper. Use it for
+  cheese, sauce, trash, glove, and slicer.
+- `src/stations.js`: one class per station (`update()` for rules, `render()`
+  for drawing). Shared layout constants keep hit-tests and graphics aligned.
+- `src/game.js`: main loop, station switching, routing gestures to stations.
+
+## What to do next
+
+All MUST items (AC#1, #4, #8) are done. In order:
+
+1. **AC#2** order + ticket (needed for the rating)
+2. **AC#13** serve + rating (compare pizza to order)
+3. **AC#10–11** baking
+4. **AC#12** cutting
+5. **AC#7** cheese (nearly free; reuses the AC#8 code)
+6. Cut first if short on time: AC#6 sauce, AC#9 trash
+
+## Known bugs
+
+- **Pinch sometimes reads as thumbs left/right**, causing an accidental station
+  switch. Likely fix: skip the thumbs check in `gestures.js` while pinching.
+- **Thresholds are lightly tested.** Pinch and thumbs work on the author's
+  webcam but aren't tuned for other hands or lighting. Adjust in `config.js`.
+
+### Possible traps (not observed)
+
+- If tracking drops mid-drag, a topping may be placed at the last cursor
+  position.
+- MediaPipe uses the GPU; on machines without WebGL, switch to `"CPU"` in
+  `handTracking.js`.
+- No reset between orders yet. You'll need one once serving works.
+
+## Where corners were cut
+
+- Built one AC at a time in priority order, so the risky parts (tracking,
+  switching, pinch) work and the rest are deliberately placeholders.
+- Graphics are basic canvas shapes to lock in layout and hit areas cheaply.
+- No tests or bundler, to keep it zero-install. Test by hand in the browser.
