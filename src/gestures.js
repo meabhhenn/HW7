@@ -77,14 +77,34 @@ export class GestureDetector {
   // ---- helpers -------------------------------------------------------------
 
   /**
-   * TODO(pinch): return true when thumb and index fingertips are close enough.
-   * @param {Array<{x:number,y:number}>} _landmarks
+   * Pinch = thumb tip and index tip close together (AC#8; reused by sauce,
+   * cheese, trash, glove, slicer later). Scale-invariant: the thumb-index
+   * distance is measured as a ratio of hand width, then compared against the
+   * close/open thresholds with hysteresis so the pinch doesn't flicker at the
+   * boundary. Uses this._wasPinching to apply the correct threshold.
+   * @param {Array<{x:number,y:number}>} landmarks
    * @returns {boolean}
    */
-  _detectPinch(_landmarks) {
-    // TODO: const d = dist(landmarks[LANDMARK.THUMB_TIP], landmarks[LANDMARK.INDEX_TIP]);
-    //       apply close/open thresholds with hysteresis using this._wasPinching.
-    return false;
+  _detectPinch(landmarks) {
+    const thumbTip = landmarks[LANDMARK.THUMB_TIP];
+    const indexTip = landmarks[LANDMARK.INDEX_TIP];
+    // Hand width proxy (same basis as the thumb checks) keeps this comparable
+    // regardless of how close the hand is to the camera.
+    const handWidth = this._dist(
+      landmarks[LANDMARK.INDEX_MCP],
+      landmarks[LANDMARK.PINKY_MCP]
+    );
+    if (handWidth <= 0) return this._wasPinching; // degenerate frame: hold state
+
+    const ratio = this._dist(thumbTip, indexTip) / handWidth;
+
+    // Hysteresis: once pinching, require separating past the (larger) OPEN
+    // threshold to release; when not pinching, require closing past the
+    // (smaller) CLOSE threshold to grab.
+    if (this._wasPinching) {
+      return ratio < CONFIG.PINCH_OPEN_THRESHOLD;
+    }
+    return ratio < CONFIG.PINCH_CLOSE_THRESHOLD;
   }
 
   /**
@@ -238,5 +258,78 @@ export class GestureDetector {
       thumbsLeftHeld: false,
       thumbsRightHeld: false,
     };
+  }
+}
+
+/**
+ * PinchDragTracker
+ * Reusable "pinch to pick up, hold to drag, release to drop" helper built on
+ * top of the pinch edges in GestureState. It is interaction-agnostic: it only
+ * knows "is something being carried and where is it". Callers decide WHAT gets
+ * picked up (via the onGrab hit-test) and WHAT happens on release (onDrop).
+ *
+ * The Topping station uses it for AC#8 (place toppings); sauce, cheese, trash,
+ * glove, and slicer can reuse the exact same flow later.
+ *
+ * Usage per frame:
+ *   tracker.update(gesture, {
+ *     onGrab: (point) => payloadOrNull,  // return what to carry, or null
+ *     onDrop: (payload, point) => {},    // commit the drop (place/remove/etc.)
+ *   });
+ *   if (tracker.carrying) drawGhostAt(tracker.point, tracker.payload);
+ */
+export class PinchDragTracker {
+  constructor() {
+    /** @type {*} payload currently being carried, or null when idle. */
+    this.payload = null;
+    /** @type {{x:number,y:number}|null} current carry position (cursor). */
+    this.point = null;
+  }
+
+  /** @returns {boolean} true while something is held. */
+  get carrying() {
+    return this.payload != null;
+  }
+
+  /**
+   * Advance the pick-up/carry/drop state machine for this frame.
+   * @param {GestureState} gesture
+   * @param {{
+   *   onGrab: (point: {x:number,y:number}) => *,
+   *   onDrop: (payload: *, point: {x:number,y:number}|null) => void,
+   * }} handlers
+   */
+  update(gesture, handlers) {
+    // Pick up: on the frame the pinch begins, ask the caller what (if anything)
+    // is under the pinch point. A null result means "nothing here", stay idle.
+    if (gesture.pinchStarted && !this.carrying) {
+      const point = gesture.pinchPoint;
+      const payload = handlers.onGrab(point);
+      if (payload != null) {
+        this.payload = payload;
+        this.point = point;
+      }
+      return;
+    }
+
+    // Carry: while the pinch is held, the carried item follows the cursor.
+    if (this.carrying && gesture.pinching) {
+      if (gesture.pinchPoint) this.point = gesture.pinchPoint;
+      return;
+    }
+
+    // Drop: on release (or if tracking was lost), hand the payload back to the
+    // caller to commit. Then clear so the next grab starts fresh.
+    if (this.carrying && (gesture.pinchReleased || !gesture.pinching)) {
+      handlers.onDrop(this.payload, this.point);
+      this.payload = null;
+      this.point = null;
+    }
+  }
+
+  /** Force-clear any carried item (e.g. when leaving a station). */
+  reset() {
+    this.payload = null;
+    this.point = null;
   }
 }

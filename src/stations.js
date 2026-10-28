@@ -11,6 +11,46 @@
 // to the spec's gesture-mapping table and acceptance criteria.
 
 import { STATIONS } from "./config.js";
+import { PinchDragTracker } from "./gestures.js";
+
+// ---------------------------------------------------------------------------
+// Topping station layout (shared by update + render so hit-tests match the art)
+// ---------------------------------------------------------------------------
+// Dough / pizza target the toppings land on.
+const DOUGH = { cx: 640, cy: 380, r: 170 };
+
+// Bins along the top. `type` is what a pinch picks up. Sauce and cheese are
+// drawn but NOT pickable yet (those are AC#6 / AC#7 -- not implemented here);
+// only the two topping bins are active for AC#8.
+const TOPPING_BINS = [
+  { type: "pepperoni", x: 860, y: 120, w: 120, h: 90, color: "#b03a2e", pickable: true },
+  { type: "pepper", x: 1040, y: 120, w: 120, h: 90, color: "#2e7d32", pickable: true },
+];
+const SAUCE_BIN = { x: 120, y: 120, w: 120, h: 90, color: "#c0392b" };
+const CHEESE_BIN = { x: 300, y: 120, w: 120, h: 90, color: "#f4d35e" };
+const TRASH = { x: 1080, y: 560, w: 110, h: 120, color: "#555b61" };
+
+// Visual radius of a placed/carried topping blob.
+const TOPPING_RADIUS = 16;
+
+/** @returns {boolean} is point (px) inside this rectangle region? */
+function pointInRect(p, r) {
+  return p && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+}
+
+/** @returns {boolean} is point (px) inside the dough circle? */
+function pointInCircle(p, c) {
+  if (!p) return false;
+  const dx = p.x - c.cx;
+  const dy = p.y - c.cy;
+  return dx * dx + dy * dy <= c.r * c.r;
+}
+
+/** Fill color for a placed topping blob of the given type. */
+function toppingColor(type) {
+  const bin = TOPPING_BINS.find((b) => b.type === type);
+  return bin ? bin.color : "#8b5a2b";
+}
 
 /**
  * @typedef {Object} Order
@@ -162,37 +202,80 @@ export class OrderStation extends Station {
 export class ToppingStation extends Station {
   constructor() {
     super(STATIONS.TOPPING);
-    this._carrying = null; // what the pinch is currently holding (cheese/topping)
+    // Reusable pinch-to-pick-up / release-to-drop helper (shared across the
+    // topping interactions later; AC#8 uses it for placing toppings).
+    this._drag = new PinchDragTracker();
   }
 
-  update(ctx) {
-    // TODO(AC#6): while pinching, add sauce along the cursor path across dough.
-    // TODO(AC#7): pinch over cheese bin -> release over pizza -> set cheese.
-    // TODO(AC#8): pinch over a topping bin picks it up; release over pizza
-    //   places it at the cursor position (CORE interaction).
-    // TODO(AC#9): pinch a placed topping, release over the trash -> remove it.
-    // Use ctx.gesture.pinchStarted / pinchReleased / pinchPoint + hit tests
-    //   against bin / pizza / trash regions.
+  onExit(ctx) {
+    // Don't carry a half-grabbed topping out of the station; drop it silently.
+    this._drag.reset();
     void ctx;
   }
 
+  update(ctx) {
+    // AC#8: pinch over a topping bin picks up that topping; the held topping
+    //   follows the cursor; releasing over the dough places it at the cursor
+    //   position; releasing off the pizza drops it (it disappears).
+    //
+    // TODO(AC#6): sauce drag  TODO(AC#7): cheese  TODO(AC#9): trash -- later.
+    const pizza = ctx.pizza;
+    this._drag.update(ctx.gesture, {
+      // Grab: only the two topping bins are pickable (sauce/cheese are later ACs).
+      onGrab: (point) => {
+        const bin = TOPPING_BINS.find((b) => b.pickable && pointInRect(point, b));
+        return bin ? { type: bin.type } : null;
+      },
+      // Drop: over the dough -> place at the cursor; anywhere else -> discard.
+      onDrop: (payload, point) => {
+        if (pointInCircle(point, DOUGH)) {
+          pizza.toppings.push({ type: payload.type, x: point.x, y: point.y });
+        }
+        // else: released off the pizza -> the topping just disappears (no-op).
+      },
+    });
+  }
+
   render(ctx) {
-    // PLACEHOLDER GRAPHICS ONLY -- shows intended layout, no interaction/logic.
+    // Placeholder art for the layout; the toppings/carried blob below ARE the
+    // live AC#8 state (placed toppings + the item currently being dragged).
     const g = ctx.ctx;
-    title(g, "Topping station — pinch & drag / drop (AC#6-9)");
+    title(g, "Topping station — pinch a topping bin, drop on the dough (AC#8)");
 
     // Dough circle in the center.
-    circle(g, 640, 380, 170, "#e8c98a", "#b48a4a");
-    caption(g, "dough", 640, 380);
+    circle(g, DOUGH.cx, DOUGH.cy, DOUGH.r, "#e8c98a", "#b48a4a");
+    caption(g, "dough", DOUGH.cx, DOUGH.cy);
 
-    // Labeled bins along the top: sauce, cheese, and a couple of toppings.
-    labelBox(g, 120, 120, 120, 90, "#c0392b", "sauce");
-    labelBox(g, 300, 120, 120, 90, "#f4d35e", "cheese");
-    labelBox(g, 860, 120, 120, 90, "#b03a2e", "pepperoni");
-    labelBox(g, 1040, 120, 120, 90, "#2e7d32", "pepper");
+    // Labeled bins along the top: sauce, cheese (placeholders, not pickable yet)
+    // and the two active topping bins.
+    labelBox(g, SAUCE_BIN.x, SAUCE_BIN.y, SAUCE_BIN.w, SAUCE_BIN.h, SAUCE_BIN.color, "sauce");
+    labelBox(g, CHEESE_BIN.x, CHEESE_BIN.y, CHEESE_BIN.w, CHEESE_BIN.h, CHEESE_BIN.color, "cheese");
+    for (const bin of TOPPING_BINS) {
+      labelBox(g, bin.x, bin.y, bin.w, bin.h, bin.color, bin.type);
+    }
 
-    // Trash can in a bottom corner.
-    labelBox(g, 1080, 560, 110, 120, "#555b61", "trash");
+    // Trash can in a bottom corner (placeholder; AC#9 later).
+    labelBox(g, TRASH.x, TRASH.y, TRASH.w, TRASH.h, TRASH.color, "trash");
+
+    // Placed toppings that live on the pizza (AC#8 result, persists).
+    for (const t of ctx.pizza.toppings) {
+      circle(g, t.x, t.y, TOPPING_RADIUS, toppingColor(t.type), "rgba(0,0,0,0.35)");
+    }
+
+    // The topping currently being carried follows the cursor as a ghost.
+    if (this._drag.carrying && this._drag.point) {
+      g.save();
+      g.globalAlpha = 0.75;
+      circle(
+        g,
+        this._drag.point.x,
+        this._drag.point.y,
+        TOPPING_RADIUS,
+        toppingColor(this._drag.payload.type),
+        "rgba(0,0,0,0.5)"
+      );
+      g.restore();
+    }
   }
 }
 

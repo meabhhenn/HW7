@@ -76,12 +76,22 @@ export const CONFIG = Object.freeze({
   // wrist's x avoids flip-flopping when the thumb points mostly up/down.
   THUMB_SIDE_DEADBAND_X: 0.06,
 
-  // TODO(AC#1 pinch): distance (normalized 0..1) between thumb tip and index tip
-  // below which we count a pinch as "closed".
-  PINCH_CLOSE_THRESHOLD: 0, // TODO: tune pinch close distance
-
-  // TODO: hysteresis so pinch doesn't flicker -- distance to count as released.
-  PINCH_OPEN_THRESHOLD: 0, // TODO: tune pinch release distance
+  // --- Pinch detection (AC#8; reused by sauce/cheese/trash/glove/slicer) ----
+  // Pinch = thumb tip and index tip close together. We measure their distance
+  // as a RATIO of the hand width (index-knuckle to pinky-knuckle span) so it is
+  // scale-invariant: a pinch reads the same whether the hand is near or far
+  // from the camera. Two thresholds give hysteresis so the pinch doesn't
+  // flicker open/closed when the fingers hover right at the boundary.
+  //
+  // CLOSE (0.45): below this ratio we treat the pinch as closed (grab). Chosen
+  // just above a fully-touching pinch (~0.25-0.35 of hand width in practice) so
+  // the grab triggers a hair before the fingers actually touch, which feels
+  // responsive without false-firing from a relaxed open hand (~0.7-1.0).
+  PINCH_CLOSE_THRESHOLD: 0.45,
+  // OPEN (0.6): the pinch only counts as released once the fingers separate
+  // past this larger ratio. The gap between 0.45 and 0.6 is the hysteresis band
+  // that prevents jitter at the threshold.
+  PINCH_OPEN_THRESHOLD: 0.6,
 
   // Camera / canvas dimensions. Hand landmarks are normalized; map to these.
   VIEW_WIDTH: 1280,
