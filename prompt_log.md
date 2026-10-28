@@ -1,0 +1,2 @@
+to Kiro:
+Read SPEC.md. Set up the project structure for this game. Use separate files for hand tracking, gesture detection, the stations, and the main game loop. Don’t implement features yet; just the skeleton with comments pointing to the acceptance criteria.
