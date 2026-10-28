@@ -34,20 +34,53 @@ export const GESTURES = Object.freeze({
   THUMBS_RIGHT: "thumbs_right",
 });
 
+// Built-in MediaPipe GestureRecognizer category names we care about.
+// The recognizer emits these exact strings in result.gestures[].categoryName.
+export const MP_GESTURE = Object.freeze({
+  THUMB_UP: "Thumb_Up",
+  THUMB_DOWN: "Thumb_Down",
+  NONE: "None",
+});
+
 // ---------------------------------------------------------------------------
 // Tunables
 // ---------------------------------------------------------------------------
 export const CONFIG = Object.freeze({
-  // TODO(AC#4, AC#5): how long thumbs left/right must be held (seconds) before a
-  // station switch fires. A quick flick shorter than this must NOT switch (AC#5).
-  // Value marked TODO in spec acceptance criteria #4 — pick and tune here.
-  STATION_SWITCH_HOLD_SECONDS: 0, // TODO: set the hold duration
+  // AC#4 / AC#5: how long thumbs left/right must be held before a station
+  // switch fires. 0.6s is long enough that a quick flick (AC#5) won't trigger
+  // it by accident, but short enough to not feel sluggish when deliberate.
+  STATION_SWITCH_HOLD_SECONDS: 0.6,
 
-  // TODO(AC#1): distance (normalized 0..1) between thumb tip and index tip
+  // After a switch fires, ignore further switches for this long. Prevents one
+  // sustained hold from skipping through several stations in a row -- the
+  // player should re-hold for each step. Slightly longer than the hold itself.
+  STATION_SWITCH_COOLDOWN_SECONDS: 0.8,
+
+  // --- Thumbs left/right detection (AC#4) -----------------------------------
+  // The four non-thumb fingers count as "curled" when the fingertip is closer
+  // to the wrist than the finger's middle joint (PIP). Using a ratio of
+  // tip-distance / pip-distance keeps this scale-invariant (works whether the
+  // hand is near or far from the camera). < 1.0 means the tip folded inward;
+  // 0.9 adds a small margin so a not-quite-straight finger still reads as
+  // curled without being so loose that an open hand passes.
+  FINGER_CURL_TIP_PIP_RATIO: 0.9,
+
+  // The thumb counts as "extended" when its tip is far enough from the wrist
+  // relative to the index knuckle span. Expressed as a fraction of the hand
+  // width so it is scale-invariant. 0.6 reliably separates a stuck-out thumb
+  // from a thumb tucked against the palm.
+  THUMB_EXTENDED_MIN_RATIO: 0.6,
+
+  // Horizontal distance (normalized 0..1) the thumb tip must sit to one side
+  // of the wrist before we commit to "left" or "right". A deadband near the
+  // wrist's x avoids flip-flopping when the thumb points mostly up/down.
+  THUMB_SIDE_DEADBAND_X: 0.06,
+
+  // TODO(AC#1 pinch): distance (normalized 0..1) between thumb tip and index tip
   // below which we count a pinch as "closed".
   PINCH_CLOSE_THRESHOLD: 0, // TODO: tune pinch close distance
 
-  // TODO: hysteresis so pinch doesn't flicker — distance to count as released.
+  // TODO: hysteresis so pinch doesn't flicker -- distance to count as released.
   PINCH_OPEN_THRESHOLD: 0, // TODO: tune pinch release distance
 
   // Camera / canvas dimensions. Hand landmarks are normalized; map to these.

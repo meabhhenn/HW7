@@ -11,6 +11,15 @@ import { HandTracker } from "./handTracking.js";
 import { GestureDetector } from "./gestures.js";
 import { createStations, createEmptyPizza } from "./stations.js";
 
+// Human-readable station names for the HUD (AC#4 shows the current station).
+const STATION_LABELS = {
+  [STATIONS.ORDER]: "Order",
+  [STATIONS.TOPPING]: "Topping",
+  [STATIONS.BAKE]: "Bake",
+  [STATIONS.CUT]: "Cut",
+  [STATIONS.SERVE]: "Serve",
+};
+
 class Game {
   constructor() {
     this.video = document.getElementById("camera");
@@ -33,7 +42,7 @@ class Game {
   }
 
   async start() {
-    // AC#1: bring up the camera + hand landmarker, then run the loop.
+    // AC#1: bring up the camera + recognizer, then run the loop.
     this.statusEl.textContent = "status: requesting camera…";
     try {
       await this.tracker.init();
@@ -45,7 +54,8 @@ class Game {
 
     this._enterStation(this.currentStation);
     this._running = true;
-    this.statusEl.textContent = "status: running — move your hand";
+    this.statusEl.textContent =
+      "status: running — hold a thumbs left/right to change station";
     requestAnimationFrame((t) => this._loop(t));
   }
 
@@ -54,12 +64,12 @@ class Game {
     const dt = this._lastFrameMs ? (nowMs - this._lastFrameMs) / 1000 : 0;
     this._lastFrameMs = nowMs;
 
-    // 1) Hand tracking -> frame with landmarks + cursor (AC#1).
+    // 1) Hand tracking -> frame with landmarks + cursor (AC#1) + built-in label.
     const frame = this.tracker.detect(nowMs);
 
-    // 2) Interpret gestures from the frame.
-    // TODO(AC#2/#13): pass the built-in MediaPipe gesture label if available.
-    const gesture = this.gestures.update(frame, /* builtInGesture */ undefined);
+    // 2) Interpret gestures from the frame. The built-in gesture label now
+    //    rides along on the frame (GestureRecognizer); gestures.js reads it.
+    const gesture = this.gestures.update(frame, frame.builtInGesture);
 
     // 3) Station switching (AC#4/#5), gated by the hold logic in gestures.js.
     this._handleStationSwitch(gesture);
@@ -119,7 +129,11 @@ class Game {
   }
 
   _enterStation(id) {
-    this.stationLabel.textContent = `station: ${id}`;
+    // AC#4: reflect the current station in the HUD, with position (e.g. 2/5).
+    const index = STATION_ORDER.indexOf(id) + 1;
+    const name = STATION_LABELS[id] || id;
+    this.stationLabel.textContent =
+      `station: ${name} (${index}/${STATION_ORDER.length})`;
     this.stations[id].onEnter(this._bareCtx());
   }
 
